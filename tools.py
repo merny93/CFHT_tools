@@ -163,37 +163,48 @@ def gaus_temp(N, sig):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Detect the absorption and emmision in the data sets. Run with -h for help')
+    parser = argparse.ArgumentParser(epilog="Uses gaussian fits to filter data. I sadly dont really know what the model is so its a best guess right now.")
     parser.add_argument("fname", type=str, help="Path to data file to analyize")
     parser.add_argument("save_file", type=str, help="where to save the output")
-    parser.add_argument("--up_thresh", type=float, default=1.4, help="Threshhold to detect peaks")
-    parser.add_argument("--down_thresh", type=float, default=0.5, help="Threshhold to detect troths")
+    parser.add_argument("--up_thresh", type=float, default=0.002, help="Threshhold to detect peaks")
+    parser.add_argument("--down_thresh", type=float, default=0.002, help="Threshhold to detect troths")
     parser.add_argument("--plot", action="store_true", default=False, help="generate a plot")
     
+    #gaussian widths we try to fit
     temp_widths = [200,400, 800, 1200]
 
-    import matplotlib.pyplot as plt
     ##add more data later
     args = parser.parse_args()
     file_name = args.fname
 
+    #get data
     header, data = data_reader(file_name, n_cols= 2, head_return=True)
 
+    # whiten the data and get the noise model
     ps, data_white = colgate(data[:,1])
     matched_total = []
+
+    #loop through the widths
     for sigma in temp_widths:
+        #move into the same space
         template_white = colgate(gaus_temp(data_white.size, sigma), spec=np.sqrt(ps))
+        #filter
         matched_out = match_filter(data_white, template_white)
+        #add results
         matched_total.append(matched_out)
+    #combine results
     matched_total = np.sum(np.array(matched_total), axis = 0)
 
+    #now we peak detect on the filtered data
     from scipy.signal import find_peaks
-    peaks,_ = find_peaks(matched_total, prominence= 0.002)
-    anti_peaks,_ = find_peaks(-1* matched_total, prominence= 0.002)
+    peaks,_ = find_peaks(matched_total, prominence= args.up_thresh)
+    anti_peaks,_ = find_peaks(-1* matched_total, prominence= args.down_thresh)
 
-    
+    #translate into frequency
     down_freq = np.interp(peaks, np.arange(0, data.shape[0]), data[:,0])
     up_freq = np.interp(anti_peaks, np.arange(0, data.shape[0]), data[:,0])
 
+    #save to file
     with open(args.save_file, "w") as save_file:
         save_file.write("Data from: " +header)
         save_file.write("Emmisions (nm): \n")
@@ -208,7 +219,7 @@ if __name__=="__main__":
             string_val = string_val + str(val) + ", "
         save_file.write(string_val)
 
-
+    #plot if we ask for it
     if args.plot:
         import matplotlib.pyplot as plt
         plt.plot(data[:,0],data[:,1], label = "data")
