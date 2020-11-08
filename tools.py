@@ -22,7 +22,6 @@ def data_reader(file_name, n_rows = -1, n_cols = -1, head_return = False, sort_d
         data_size_string = data_file.readline().split()
         #switch to integers
         data_size = [int(val) for val in data_size_string]
-        print(data_size)
         #set the number of rows to read
         if n_rows < 0:
             rows_read = data_size[0] #cause of how python does things
@@ -59,15 +58,75 @@ def data_reader(file_name, n_rows = -1, n_cols = -1, head_return = False, sort_d
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Detect the absorption and emmision in the data sets. Run with -h for help')
     parser.add_argument("fname", type=str, help="Path to data file to analyize")
+    parser.add_argument("save_file", type=str, help="where to save the output")
+    parser.add_argument("--up_thresh", type=float, default=1.4, help="Threshhold to detect peaks")
+    parser.add_argument("--down_thresh", type=float, default=0.5, help="Threshhold to detect troths")
+    parser.add_argument("--plot", action="store_true", default=False, help="generate a plot")
+    
     ##add more data later
     args = parser.parse_args()
     file_name = args.fname
 
     header, data = data_reader(file_name, n_cols= 2, head_return=True)
-    import matplotlib.pyplot as plt
-    plt.plot(np.fft.rfft(data[:,1]-1))
-    plt.show()
-    plt.plot(data[:,0], data[:,1])
-    plt.show()
-    print(header)
-    #print(data)
+
+    #the treshholds for detection
+    thr_up = args.up_thresh
+    thr_down = args.down_thresh
+
+    #find where they are happening
+    down_arg = np.argwhere(data[:,1] < thr_down).T
+    up_arg = np.argwhere(data[:,1]> thr_up).T
+    
+    #split into continous blocks (acts as a bit of filterin)
+    up_candidate_blocks = np.split(up_arg, np.where(np.diff(up_arg) != 1)[1]+1, axis = -1)
+    down_candidate_blocks = np.split(down_arg, np.where(np.diff(down_arg) != 1)[1]+1, axis = -1)
+    
+    #check that the size is resonable
+    up_loc = []
+    for up_can in up_candidate_blocks:
+        if up_can.size < 10 or up_can.size > 500:
+            pass #rejected cause too big or too small
+        else:
+            #its good so lets find the center
+            up_loc.append((np.mean(up_can)))
+    down_loc = []
+    for down_can in down_candidate_blocks:
+        if down_can.size < 10 or down_can.size > 30:
+            pass
+        else:
+            down_loc.append((np.mean(down_can)))
+
+    #now the arrays contain the info so we simply save to a file.
+    #we need to switch to freqeuncy 
+    up_freq = np.interp(up_loc, np.arange(0, data.shape[0]), data[:,0])
+    down_freq = np.interp(down_loc, np.arange(0, data.shape[0]), data[:,0])
+
+    with open(args.save_file, "w") as save_file:
+        save_file.write("Data from: " +header)
+        save_file.write("Emmisions (nm): \n")
+        string_val = ""
+        for val in up_freq:
+            string_val = string_val + str(val) + ", "
+        save_file.write(string_val)
+        save_file.write("\n")
+        save_file.write("Absorptions (nm): \n")
+        string_val = ""
+        for val in down_freq:
+            string_val = string_val + str(val) + ", "
+        save_file.write(string_val)
+
+
+    if args.plot:
+        import matplotlib.pyplot as plt
+        plt.plot(data[:,0],data[:,1], label = "data")
+        plt.axvline(x = up_freq[0], color="red", label = "emmision")
+        for val in up_freq[1:]:
+            plt.axvline(x = val, color="red")
+        plt.axvline(x = down_freq[0], color = "green", label="absorption")
+        for val in down_freq[1:]:
+            plt.axvline(x = val, color = "green")
+        plt.xlabel("Wavelength (nm)")
+        plt.ylabel("Normalized power")
+        plt.title("Plot with features")
+        plt.legend()
+        plt.show()
